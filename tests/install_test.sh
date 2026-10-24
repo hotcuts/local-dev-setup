@@ -104,6 +104,17 @@ grep -q 'cask "font-jetbrains-mono-nerd-font"' "$ROOT/platforms/macosx/Brewfile"
 grep -q 'cask "zed"' "$ROOT/platforms/macosx/Brewfile" || die "missing zed cask"
 grep -q 'cask "google-chrome"' "$ROOT/platforms/macosx/Brewfile" || die "missing chrome cask"
 grep -q 'cask "firefox"' "$ROOT/platforms/macosx/Brewfile" || die "missing firefox cask"
+for formula in zsh-syntax-highlighting zsh-autocomplete nvm go; do
+  grep -qx "brew \"$formula\"" "$ROOT/platforms/macosx/Brewfile" || die "missing $formula formula"
+done
+zshdev_src="$ROOT/platforms/macosx/config/zshdev"
+grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev does not load zsh-autocomplete"
+grep -q 'zsh-syntax-highlighting.zsh' "$zshdev_src" || die "zshdev does not load zsh-syntax-highlighting"
+grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load nvm"
+syntax_line="$(grep -n 'zsh-syntax-highlighting.zsh' "$zshdev_src" | tail -n 1 | cut -d: -f1)"
+last_line="$(grep -vn '^[[:space:]]*\(#\|$\)' "$zshdev_src" | tail -n 1 | cut -d: -f1)"
+[[ "$syntax_line" -ge "$last_line" || "$(sed -n "${syntax_line},\$p" "$zshdev_src" | grep -c 'source\|^\.')" -le 1 ]] \
+  || die "zsh-syntax-highlighting must be sourced last"
 grep -q 'hotcuts/local-dev-setup' "$ROOT/install.sh" || die "install.sh is not pinned to hotcuts/local-dev-setup"
 echo "PASS repo declares the macOS baseline"
 

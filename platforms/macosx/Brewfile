@@ -1,4 +1,8 @@
 brew "starship"
+brew "zsh-autocomplete"
+brew "zsh-syntax-highlighting"
+brew "nvm"
+brew "go"
 cask "ghostty"
 cask "font-jetbrains-mono-nerd-font"
 cask "zed"

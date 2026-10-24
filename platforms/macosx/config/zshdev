@@ -1,2 +1,24 @@
 # Managed by local-dev-setup. This file is the shell profile for the installer.
+brew_prefix="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
+
+# nvm: keep an nvm already loaded from ~/.zshrc, otherwise use Homebrew's.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if ! typeset -f nvm >/dev/null && [[ -s "$brew_prefix/opt/nvm/nvm.sh" ]]; then
+  mkdir -p "$NVM_DIR"
+  . "$brew_prefix/opt/nvm/nvm.sh"
+  if [[ -s "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm" ]]; then
+    . "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm"
+  fi
+fi
+
+# zsh-autocomplete
+if [[ -r "$brew_prefix/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh" ]]; then
+  source "$brew_prefix/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh"
+fi
+
 eval "$(starship init zsh)"
+
+# zsh-syntax-highlighting must be sourced last.
+if [[ -r "$brew_prefix/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
+  source "$brew_prefix/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+fi

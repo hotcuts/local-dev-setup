@@ -38,6 +38,8 @@ OS map: `Darwin` to `macosx`, `Linux` to `linux`, and `MINGW` / `MSYS` / `CYGWIN
 `platforms/macosx/Brewfile`:
 
 - `starship`
+- `zsh-autocomplete` and `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
+- `nvm` and `go`; `~/.zshdev` uses Homebrew's nvm only when `nvm` is not already loaded by `~/.zshrc`
 - Ghostty
 - JetBrainsMono Nerd Font
 - Zed
