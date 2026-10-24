@@ -1,17 +1,29 @@
 # Managed by local-dev-setup. This file is the shell profile for the installer.
 
+# User-local binaries (Starship, Zed, nvm shims) before the rest of PATH.
+if [[ -d "$HOME/.local/bin" ]]; then
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) PATH="$HOME/.local/bin:$PATH" ;;
+  esac
+fi
+
 # Typing a directory name changes into it, so `..` and `src` work without `cd`.
 setopt AUTO_CD
 
 brew_prefix="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
 
-# nvm: keep an nvm already loaded from ~/.zshrc, otherwise use Homebrew's.
+# nvm: keep an nvm already loaded from ~/.zshrc, else ~/.nvm, else Homebrew.
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-if ! typeset -f nvm >/dev/null && [[ -s "$brew_prefix/opt/nvm/nvm.sh" ]]; then
-  mkdir -p "$NVM_DIR"
-  . "$brew_prefix/opt/nvm/nvm.sh"
-  if [[ -s "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm" ]]; then
-    . "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm"
+if ! typeset -f nvm >/dev/null; then
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    . "$NVM_DIR/nvm.sh"
+  elif [[ -s "$brew_prefix/opt/nvm/nvm.sh" ]]; then
+    mkdir -p "$NVM_DIR"
+    . "$brew_prefix/opt/nvm/nvm.sh"
+    if [[ -s "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm" ]]; then
+      . "$brew_prefix/opt/nvm/etc/bash_completion.d/nvm"
+    fi
   fi
 fi
 
@@ -29,6 +41,8 @@ bindkey '^[OB' down-line-or-beginning-search
 # zsh-autosuggestions (Fish-like ghost suggestions)
 if [[ -r "$brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
   source "$brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+elif [[ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]]; then
+  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 fi
 
 eval "$(starship init zsh)"
@@ -36,4 +50,6 @@ eval "$(starship init zsh)"
 # zsh-syntax-highlighting must be sourced last.
 if [[ -r "$brew_prefix/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
   source "$brew_prefix/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+elif [[ -r /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]]; then
+  source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 fi

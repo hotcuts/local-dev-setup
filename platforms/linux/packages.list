@@ -1,0 +1,8 @@
+# Ubuntu apt packages. One name per line. Chrome, Starship, nvm, Zed, and the
+# Nerd Font are installed by modules that use each project's official method.
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+golang-go
+firefox
+ghostty

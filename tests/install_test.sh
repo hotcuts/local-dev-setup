@@ -68,11 +68,181 @@ EOF
   chmod +x "$FAKE_BIN/brew"
 
   BREW_LOG="$FIX/brew.log"
+  APT_LOG="$FIX/apt.log"
+  CURL_LOG="$FIX/curl.log"
+  INSTALLED_PKGS="$FIX/installed-pkgs"
   : > "$BREW_LOG"
+  : > "$APT_LOG"
+  : > "$CURL_LOG"
+  : > "$INSTALLED_PKGS"
+
+  cat > "$FAKE_BIN/sudo" << 'EOF'
+#!/bin/bash
+exec "$@"
+EOF
+
+  cat > "$FAKE_BIN/dpkg-query" << 'EOF'
+#!/bin/bash
+pkg=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -W) shift ;;
+    -f*) shift ;;
+    *) pkg=$1; shift ;;
+  esac
+done
+if grep -qx "$pkg" "${INSTALLED_PKGS:?}"; then
+  printf 'install ok installed\n'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$FAKE_BIN/apt-get" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${APT_LOG:?}"
+if [[ "${1:-}" == "update" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "install" ]]; then
+  shift
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "-y" ]]; then
+      shift
+      continue
+    fi
+    printf '%s\n' "$1" >> "${INSTALLED_PKGS:?}"
+    stub=""
+    case "$1" in
+      ghostty) stub=ghostty ;;
+      golang-go) stub=go ;;
+      firefox) stub=firefox ;;
+      google-chrome-stable) stub=google-chrome-stable ;;
+    esac
+    if [[ -n "$stub" ]]; then
+      printf '#!/bin/sh\n' > "${FAKE_BIN:?}/$stub"
+      chmod +x "${FAKE_BIN}/$stub"
+    fi
+    shift
+  done
+fi
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/apt-cache" << 'EOF'
+#!/bin/bash
+if [[ "${1:-}" == "policy" ]]; then
+  printf 'Candidate: 1.3.0\n'
+fi
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/add-apt-repository" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${APT_LOG:?}"
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/gpg" << 'EOF'
+#!/bin/bash
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cat >/dev/null
+if [[ -n "$out" ]]; then
+  mkdir -p "$(dirname "$out")"
+  : > "$out"
+fi
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/fc-list" << 'EOF'
+#!/bin/bash
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/fc-cache" << 'EOF'
+#!/bin/bash
+exit 0
+EOF
+
+  cat > "$FAKE_BIN/curl" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${CURL_LOG:?}"
+out=""
+url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o|--output) out=$2; shift 2 ;;
+    http://*|https://*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  *starship.rs/install.sh*)
+    cat << 'SCRIPT'
+#!/bin/bash
+bindir="${HOME}/.local/bin"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b) bindir=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$bindir"
+printf '#!/bin/sh\n' > "$bindir/starship"
+chmod +x "$bindir/starship"
+SCRIPT
+    ;;
+  *nvm-sh/nvm*)
+    cat << 'SCRIPT'
+#!/bin/bash
+mkdir -p "${HOME}/.nvm"
+printf '# nvm\n' > "${HOME}/.nvm/nvm.sh"
+SCRIPT
+    ;;
+  *zed.dev/install.sh*)
+    cat << 'SCRIPT'
+#!/bin/bash
+mkdir -p "${HOME}/.local/bin"
+printf '#!/bin/sh\n' > "${HOME}/.local/bin/zed"
+chmod +x "${HOME}/.local/bin/zed"
+SCRIPT
+    ;;
+  *JetBrainsMono.zip*)
+    target="${out:-/dev/stdout}"
+    python3 - "$target" << 'PY'
+import sys, zipfile, io
+dest = sys.argv[1]
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as zf:
+    zf.writestr("JetBrainsMonoNerdFont-Regular.ttf", b"ttf")
+data = buf.getvalue()
+if dest == "/dev/stdout":
+    sys.stdout.buffer.write(data)
+else:
+    open(dest, "wb").write(data)
+PY
+    ;;
+  *linux_signing_key.pub*)
+    printf 'KEY\n'
+    ;;
+esac
+exit 0
+EOF
+
+  chmod +x "$FAKE_BIN/sudo" "$FAKE_BIN/dpkg-query" "$FAKE_BIN/apt-get" \
+    "$FAKE_BIN/apt-cache" "$FAKE_BIN/add-apt-repository" "$FAKE_BIN/gpg" \
+    "$FAKE_BIN/fc-list" "$FAKE_BIN/fc-cache" "$FAKE_BIN/curl"
+
   export HOME="$HOME_DIR"
   export PATH="$FAKE_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
-  export BREW_LOG FAKE_BREW_PREFIX="$FAKE_BIN"
-  unset LOCAL_DEV_SETUP_PLATFORM || true
+  export BREW_LOG APT_LOG CURL_LOG INSTALLED_PKGS FAKE_BIN FAKE_BREW_PREFIX="$FAKE_BIN"
+  unset LOCAL_DEV_SETUP_PLATFORM LOCAL_DEV_SETUP_OS_RELEASE LOCAL_DEV_SETUP_APT_ROOT || true
 }
 
 run_install() {
@@ -107,12 +277,14 @@ grep -q 'cask "firefox"' "$ROOT/platforms/macosx/Brewfile" || die "missing firef
 for formula in zsh-autosuggestions zsh-syntax-highlighting nvm go; do
   grep -qx "brew \"$formula\"" "$ROOT/platforms/macosx/Brewfile" || die "missing $formula formula"
 done
-zshdev_src="$ROOT/platforms/macosx/config/zshdev"
+zshdev_src="$ROOT/config/zshdev"
 ! grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev should not load zsh-autocomplete"
 grep -q 'up-line-or-beginning-search' "$zshdev_src" || die "zshdev does not configure up-line-or-beginning-search"
 grep -q 'zsh-autosuggestions.zsh' "$zshdev_src" || die "zshdev does not load zsh-autosuggestions"
+grep -q '/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh' "$zshdev_src" || die "zshdev does not load Ubuntu zsh-autosuggestions"
 grep -q 'zsh-syntax-highlighting.zsh' "$zshdev_src" || die "zshdev does not load zsh-syntax-highlighting"
-grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load nvm"
+grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load Homebrew nvm"
+grep -q 'NVM_DIR/nvm.sh' "$zshdev_src" || die "zshdev does not load ~/.nvm"
 auto_cd_state="$(env -i HOME="$(mktemp -d)" PATH="/usr/bin:/bin" HOMEBREW_PREFIX=/nonexistent \
   zsh -f -c 'source "$1" 2>/dev/null; [[ -o autocd ]] && echo on || echo off' _ "$zshdev_src" 2>/dev/null || true)"
 [[ "$auto_cd_state" == "on" ]] || die "zshdev does not enable AUTO_CD (got: $auto_cd_state)"
@@ -274,14 +446,14 @@ PY
     echo "SKIP git segment render (git could not create a repo here)"
   fi
 fi
-grep -q 'theme = Srcery' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty theme is not Srcery"
-opacity="$(sed -n 's/^background-opacity = //p' "$ROOT/platforms/macosx/config/ghostty.config")"
+grep -q 'theme = Srcery' "$ROOT/config/ghostty.config" || die "ghostty theme is not Srcery"
+opacity="$(sed -n 's/^background-opacity = //p' "$ROOT/config/ghostty.config")"
 python3 -c 'import sys; v = float(sys.argv[1]); assert 0 < v <= 1, v' "$opacity" 2>/dev/null \
   || die "ghostty background-opacity must be a number above 0 and at most 1 (got: $opacity)"
 ! grep -Eq '^background-blur[[:space:]]*=[[:space:]]*([1-9][0-9]*|true|on)[[:space:]]*$' \
-  "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty must not enable background blur"
-grep -q '^adjust-cell-height = 20%$' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty line height is not adjusted for the prompt gap"
-gc="$ROOT/platforms/macosx/config/ghostty.config"
+  "$ROOT/config/ghostty.config" || die "ghostty must not enable background blur"
+grep -q '^adjust-cell-height = 20%$' "$ROOT/config/ghostty.config" || die "ghostty line height is not adjusted for the prompt gap"
+gc="$ROOT/config/ghostty.config"
 grep -q '^cursor-style = block$' "$gc" || die "ghostty cursor is not a block"
 grep -q '^cursor-style-blink = true$' "$gc" || die "ghostty cursor does not blink"
 grep -q '^cursor-color = #98bc37$' "$gc" || die "ghostty cursor should match the green caret"
@@ -303,7 +475,7 @@ PY2
 fi
 ghostty_bin=/Applications/Ghostty.app/Contents/MacOS/ghostty
 if [[ -x "$ghostty_bin" ]]; then
-  ghostty_out="$("$ghostty_bin" +validate-config --config-file="$ROOT/platforms/macosx/config/ghostty.config" 2>&1)" || ghostty_rc=$?
+  ghostty_out="$("$ghostty_bin" +validate-config --config-file="$ROOT/config/ghostty.config" 2>&1)" || ghostty_rc=$?
   if [[ "${ghostty_rc:-0}" != 0 && "$ghostty_out" != *SentryInitFailed* ]]; then
     die "ghostty rejected its config: $ghostty_out"
   fi
@@ -318,15 +490,62 @@ code="$(run_install)"
 grep -q 'Applying platform macosx' "$FIX/stdout" || die "darwin dispatch did not select macosx"
 echo "PASS darwin dispatch selects macosx"
 
-echo "RUN linux stub exits non-zero"
+echo "RUN repo declares the Ubuntu baseline"
+grep -qx 'zsh' "$ROOT/platforms/linux/packages.list" || die "linux packages.list missing zsh"
+for pkg in zsh-autosuggestions zsh-syntax-highlighting golang-go firefox ghostty; do
+  grep -qx "$pkg" "$ROOT/platforms/linux/packages.list" || die "linux packages.list missing $pkg"
+done
+grep -q 'starship.rs/install.sh' "$ROOT/platforms/linux/modules/25-extras.sh" || die "linux does not install Starship from its official script"
+grep -q 'nvm-sh/nvm' "$ROOT/platforms/linux/modules/25-extras.sh" || die "linux does not install nvm from nvm-sh"
+grep -q 'dl.google.com/linux/chrome' "$ROOT/platforms/linux/modules/25-extras.sh" || die "linux does not use Google's Chrome apt repo"
+grep -q 'zed.dev/install.sh' "$ROOT/platforms/linux/modules/25-extras.sh" || die "linux does not install Zed from its official script"
+grep -q 'JetBrainsMono.zip' "$ROOT/platforms/linux/modules/25-extras.sh" || die "linux does not install JetBrainsMono Nerd Font"
+grep -q '~/.config/ghostty/config' "$ROOT/platforms/linux/manifest.conf" || die "linux Ghostty path is not XDG"
+grep -q 'cmd:ghostty' "$ROOT/platforms/linux/manifest.conf" || die "linux Ghostty config is not gated on the binary"
+echo "PASS repo declares the Ubuntu baseline"
+
+echo "RUN linux ubuntu install uses apt not brew"
 setup_fixture
 export LOCAL_DEV_SETUP_PLATFORM=linux
+export LOCAL_DEV_SETUP_OS_RELEASE="$FIX/os-release"
+export LOCAL_DEV_SETUP_APT_ROOT="$HOME_DIR/apt-root"
+printf 'ID=ubuntu\n' > "$FIX/os-release"
 code="$(run_install)"
-[[ "$code" != "0" ]] || die "linux stub exited 0"
-grep -q 'platforms/linux is not implemented yet' "$FIX/err" || die "missing linux stub message: $(cat "$FIX/err")"
-[[ ! -s "$BREW_LOG" ]] || die "linux stub invoked brew"
-unset LOCAL_DEV_SETUP_PLATFORM
-echo "PASS linux stub exits non-zero"
+[[ "$code" == "0" ]] || die "linux install exited $code: $(cat "$FIX/err") $(cat "$FIX/stdout")"
+grep -q 'Applying platform linux' "$FIX/stdout" || die "linux dispatch did not select linux"
+[[ ! -s "$BREW_LOG" ]] || die "linux invoked brew: $(cat "$BREW_LOG")"
+grep -q 'install -y' "$APT_LOG" || die "apt-get install was not invoked: $(cat "$APT_LOG")"
+for pkg in zsh zsh-autosuggestions zsh-syntax-highlighting golang-go firefox ghostty google-chrome-stable; do
+  grep -qx "$pkg" "$INSTALLED_PKGS" || die "linux did not install $pkg"
+done
+assert_file_equals "$FIX/config/starship.toml" "$(starship_dest)"
+assert_file_equals "$FIX/config/zshdev" "$HOME_DIR/.zshdev"
+assert_file_equals "$FIX/config/ghostty.config" "$HOME_DIR/.config/ghostty/config"
+grep -Fqx '[[ -f "$HOME/.zshdev" ]] && source "$HOME/.zshdev"' "$HOME_DIR/.zshrc" || die "linux did not hook .zshdev"
+[[ -x "$HOME_DIR/.local/bin/starship" ]] || die "starship was not installed to ~/.local/bin"
+[[ -s "$HOME_DIR/.nvm/nvm.sh" ]] || die "nvm was not installed to ~/.nvm"
+[[ -x "$HOME_DIR/.local/bin/zed" ]] || die "zed was not installed to ~/.local/bin"
+ls "$HOME_DIR/.local/share/fonts/JetBrainsMonoNerd"/*.ttf >/dev/null 2>&1 || die "JetBrainsMono Nerd Font was not installed"
+[[ -f "$HOME_DIR/apt-root/etc/apt/sources.list.d/google-chrome.list" ]] || die "Chrome apt source was not written under APT_ROOT"
+: > "$APT_LOG"
+code="$(run_install)"
+[[ "$code" == "0" ]] || die "linux second install exited $code: $(cat "$FIX/err")"
+grep -qx 'unchanged: apt-packages' "$FIX/stdout" || die "linux second run did not reuse apt packages"
+grep -qx 'unchanged: starship' "$FIX/stdout" || die "linux second run reinstalled starship"
+unset LOCAL_DEV_SETUP_PLATFORM LOCAL_DEV_SETUP_OS_RELEASE LOCAL_DEV_SETUP_APT_ROOT
+echo "PASS linux ubuntu install uses apt not brew"
+
+echo "RUN linux rejects a non-Ubuntu distro"
+setup_fixture
+export LOCAL_DEV_SETUP_PLATFORM=linux
+export LOCAL_DEV_SETUP_OS_RELEASE="$FIX/os-release"
+printf 'ID=fedora\n' > "$FIX/os-release"
+code="$(run_install)"
+[[ "$code" != "0" ]] || die "fedora linux install exited 0"
+grep -q 'currently supports Ubuntu' "$FIX/err" || die "missing ubuntu-only message: $(cat "$FIX/err")"
+[[ ! -s "$BREW_LOG" ]] || die "fedora path invoked brew"
+unset LOCAL_DEV_SETUP_PLATFORM LOCAL_DEV_SETUP_OS_RELEASE
+echo "PASS linux rejects a non-Ubuntu distro"
 
 echo "RUN unknown platform lists available directories"
 setup_fixture
@@ -355,7 +574,7 @@ source_count="$(grep -Fxc "$source_line" "$HOME_DIR/.zshrc")"
 if grep -Fq "$starship_line" "$HOME_DIR/.zshrc"; then
   die "starship init was written into .zshrc"
 fi
-assert_file_equals "$FIX/platforms/macosx/config/zshdev" "$HOME_DIR/.zshdev"
+assert_file_equals "$FIX/config/zshdev" "$HOME_DIR/.zshdev"
 grep -Fqx "$starship_line" "$HOME_DIR/.zshdev" || die "starship init missing from .zshdev"
 shellenv_count="$(grep -Fc 'brew shellenv' "$HOME_DIR/.zprofile")"
 [[ "$shellenv_count" == "1" ]] || die "brew shellenv count is $shellenv_count"
@@ -368,7 +587,7 @@ after_sha="$(shasum -a 256 "$(starship_dest)" | awk '{print $1}')"
 [[ ! -d "$HOME_DIR/.local/share/local-dev-setup/backups" ]] || die "second run created a backup"
 source_count="$(grep -Fxc "$source_line" "$HOME_DIR/.zshrc")"
 [[ "$source_count" == "1" ]] || die "zshdev source count is $source_count after second run"
-assert_file_equals "$FIX/platforms/macosx/config/zshdev" "$HOME_DIR/.zshdev"
+assert_file_equals "$FIX/config/zshdev" "$HOME_DIR/.zshdev"
 shellenv_count="$(grep -Fc 'brew shellenv' "$HOME_DIR/.zprofile")"
 [[ "$shellenv_count" == "1" ]] || die "brew shellenv was duplicated"
 grep -qx 'unchanged: starship' "$FIX/stdout" || die "second run did not report starship unchanged"
@@ -389,7 +608,7 @@ setup_fixture
 mkdir -p "$HOME_DIR/Applications/Ghostty.app"
 code="$(run_install)"
 [[ "$code" == "0" ]] || die "ghostty install exited $code: $(cat "$FIX/err")"
-assert_file_equals "$FIX/platforms/macosx/config/ghostty.config" "$(ghostty_dest)"
+assert_file_equals "$FIX/config/ghostty.config" "$(ghostty_dest)"
 grep -q 'font-family = JetBrainsMono Nerd Font' "$(ghostty_dest)" || die "font family was not applied"
 grep -q 'font-size = 16' "$(ghostty_dest)" || die "font size was not applied"
 echo "PASS ghostty config is written only when the app exists"

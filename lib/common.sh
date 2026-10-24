@@ -96,6 +96,9 @@ condition_met() {
     app:*)
       [[ -e "${condition#app:}" ]]
       ;;
+    cmd:*)
+      command -v "${condition#cmd:}" >/dev/null 2>&1
+      ;;
     *)
       echo "error: unknown condition: $condition" >&2
       return 1
