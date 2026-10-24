@@ -111,6 +111,9 @@ zshdev_src="$ROOT/platforms/macosx/config/zshdev"
 grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev does not load zsh-autocomplete"
 grep -q 'zsh-syntax-highlighting.zsh' "$zshdev_src" || die "zshdev does not load zsh-syntax-highlighting"
 grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load nvm"
+auto_cd_state="$(env -i HOME="$(mktemp -d)" PATH="/usr/bin:/bin" HOMEBREW_PREFIX=/nonexistent \
+  zsh -f -c 'source "$1" 2>/dev/null; [[ -o autocd ]] && echo on || echo off' _ "$zshdev_src" 2>/dev/null || true)"
+[[ "$auto_cd_state" == "on" ]] || die "zshdev does not enable AUTO_CD (got: $auto_cd_state)"
 syntax_line="$(grep -n 'zsh-syntax-highlighting.zsh' "$zshdev_src" | tail -n 1 | cut -d: -f1)"
 last_line="$(grep -vn '^[[:space:]]*\(#\|$\)' "$zshdev_src" | tail -n 1 | cut -d: -f1)"
 [[ "$syntax_line" -ge "$last_line" || "$(sed -n "${syntax_line},\$p" "$zshdev_src" | grep -c 'source\|^\.')" -le 1 ]] \

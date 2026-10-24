@@ -39,6 +39,7 @@ OS map: `Darwin` to `macosx`, `Linux` to `linux`, and `MINGW` / `MSYS` / `CYGWIN
 
 - `starship`
 - `zsh-autocomplete` and `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
+- `AUTO_CD` enabled in `~/.zshdev`, so typing a directory name (or `..`) changes into it without `cd`
 - `nvm` and `go`; `~/.zshdev` uses Homebrew's nvm only when `nvm` is not already loaded by `~/.zshrc`
 - Ghostty
 - JetBrainsMono Nerd Font

@@ -1,4 +1,8 @@
 # Managed by local-dev-setup. This file is the shell profile for the installer.
+
+# Typing a directory name changes into it, so `..` and `src` work without `cd`.
+setopt AUTO_CD
+
 brew_prefix="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
 
 # nvm: keep an nvm already loaded from ~/.zshrc, otherwise use Homebrew's.
