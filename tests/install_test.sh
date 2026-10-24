@@ -104,11 +104,13 @@ grep -q 'cask "font-jetbrains-mono-nerd-font"' "$ROOT/platforms/macosx/Brewfile"
 grep -q 'cask "zed"' "$ROOT/platforms/macosx/Brewfile" || die "missing zed cask"
 grep -q 'cask "google-chrome"' "$ROOT/platforms/macosx/Brewfile" || die "missing chrome cask"
 grep -q 'cask "firefox"' "$ROOT/platforms/macosx/Brewfile" || die "missing firefox cask"
-for formula in zsh-syntax-highlighting nvm go; do
+for formula in zsh-autosuggestions zsh-syntax-highlighting nvm go; do
   grep -qx "brew \"$formula\"" "$ROOT/platforms/macosx/Brewfile" || die "missing $formula formula"
 done
 zshdev_src="$ROOT/platforms/macosx/config/zshdev"
 ! grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev should not load zsh-autocomplete"
+grep -q 'up-line-or-beginning-search' "$zshdev_src" || die "zshdev does not configure up-line-or-beginning-search"
+grep -q 'zsh-autosuggestions.zsh' "$zshdev_src" || die "zshdev does not load zsh-autosuggestions"
 grep -q 'zsh-syntax-highlighting.zsh' "$zshdev_src" || die "zshdev does not load zsh-syntax-highlighting"
 grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load nvm"
 auto_cd_state="$(env -i HOME="$(mktemp -d)" PATH="/usr/bin:/bin" HOMEBREW_PREFIX=/nonexistent \
@@ -134,7 +136,7 @@ import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
 first, sep, rest = cfg["format"].partition("$line_break")
 assert sep, "format needs a $line_break between the two lines"
-order = ["$os", "$directory", "$git_branch", "$fill", "$nodejs", "$bun", "$golang", "$rust", "$php", "$cmd_duration", "$status", "$time"]
+order = ["$os", "$directory", "$git_branch", "$git_status", "$git_state", "$fill", "$nodejs", "$bun", "$golang", "$rust", "$php", "$cmd_duration", "$status", "$time"]
 for mod in order:
     assert mod in first, mod + " must be on line 1"
 positions = [first.index(m) for m in order]
@@ -153,6 +155,18 @@ for key in ("success_symbol", "error_symbol"):
 assert cfg.get("right_format", "") == "", "the right side lives on line 1 via $fill, not right_format"
 for mod in ("os", "status", "time"):
     assert cfg[mod]["disabled"] is False, mod + " must be enabled"
+gs = cfg["git_status"]
+assert "$ahead_behind" in gs["format"], "ahead/behind must come from $ahead_behind"
+assert "$stashed" in gs["format"] and "$untracked" in gs["format"]
+assert gs["ahead"].startswith("⇡") and "${count}" in gs["ahead"]
+assert gs["behind"].startswith("⇣") and "${count}" in gs["behind"]
+assert "⇣" in gs["diverged"] and "⇡" in gs["diverged"]
+assert gs["stashed"].startswith("*")
+assert gs["conflicted"].startswith("~")
+assert gs["staged"].startswith("+")
+assert gs["modified"].startswith("!")
+assert gs["untracked"].startswith("?")
+assert "$state" in cfg["git_state"]["format"]
 PY
 real_starship="$(command -v starship || true)"
 if [[ -n "$real_starship" ]]; then
@@ -216,9 +230,46 @@ PY
   mkdir -p "$git_dir"
   keep "$(dirname "$git_dir")"
   if git -C "$git_dir" init -q -b tonesbranch 2>/dev/null && git -C "$git_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$git_dir" config user.email 'tones@example.test'
+    git -C "$git_dir" config user.name 'Tones'
     git_out="$(render "$git_dir" --status 0)"
     printf '%s' "$git_out" | grep -q 'tonesbranch' || die "git branch missing in a repo: $git_out"
     printf '%s' "$out_ok" | grep -q 'tonesbranch' && die "git branch leaked outside a repo"
+
+    printf 'new\n' > "$git_dir/untracked.txt"
+    untracked_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$untracked_out" | grep -q '?1' || die "untracked count missing: $untracked_out"
+
+    git -C "$git_dir" add untracked.txt
+    staged_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$staged_out" | grep -q '+1' || die "staged count missing: $staged_out"
+    printf '%s' "$staged_out" | grep -q '?1' && die "staged file still counted as untracked: $staged_out"
+
+    git -C "$git_dir" commit -qm 'init'
+    printf 'edit\n' >> "$git_dir/untracked.txt"
+    modified_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$modified_out" | grep -q '!1' || die "modified count missing: $modified_out"
+
+    git -C "$git_dir" stash push -q -m 'park'
+    stash_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$stash_out" | grep -q '*1' || die "stash count missing: $stash_out"
+    printf '%s' "$stash_out" | grep -q '!1' && die "stashed change still counted as modified: $stash_out"
+
+    git -C "$git_dir" remote add origin "$git_dir/../origin.git"
+    git -C "$git_dir" config branch.tonesbranch.remote origin
+    git -C "$git_dir" config branch.tonesbranch.merge refs/heads/tonesbranch
+    git -C "$git_dir" update-ref refs/remotes/origin/tonesbranch HEAD
+    printf 'ahead\n' >> "$git_dir/untracked.txt"
+    git -C "$git_dir" add untracked.txt
+    git -C "$git_dir" commit -qm 'ahead'
+    git -C "$git_dir" update-ref refs/remotes/origin/tonesbranch HEAD~
+    ahead_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$ahead_out" | grep -q '⇡1' || die "ahead count missing: $ahead_out"
+
+    git -C "$git_dir" update-ref refs/remotes/origin/tonesbranch HEAD
+    git -C "$git_dir" update-ref HEAD HEAD~
+    behind_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$behind_out" | grep -q '⇣1' || die "behind count missing: $behind_out"
   else
     echo "SKIP git segment render (git could not create a repo here)"
   fi

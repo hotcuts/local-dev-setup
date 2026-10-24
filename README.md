@@ -38,7 +38,8 @@ OS map: `Darwin` to `macosx`, `Linux` to `linux`, and `MINGW` / `MSYS` / `CYGWIN
 `platforms/macosx/Brewfile`:
 
 - `starship`
-- `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
+- `zsh-autosuggestions` and `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
+- Prefix history search bound to Up/Down arrows
 - `AUTO_CD` enabled in `~/.zshdev`, so typing a directory name (or `..`) changes into it without `cd`
 - `nvm` and `go`; `~/.zshdev` uses Homebrew's nvm only when `nvm` is not already loaded by `~/.zshrc`
 - Ghostty

@@ -3,8 +3,11 @@
 # Tones pad
 # Powerline prompt in the Srcery palette.
 #
-#   ╭─  macOS  dir  git branch ▶            ◀ runtime ▶◀ status ◀ clock
+#   ╭─  macOS  dir  git branch ⇣⇡ * ~ + ! ? ▶            ◀ runtime ▶◀ status ◀ clock
 #   ╰─
+#
+# Git status follows Powerlevel10k: behind/ahead arrows with counts, then stash,
+# merge state, conflicts, staged, modified, renamed, deleted, and untracked.
 #
 # The right side is reserved for runtime info (language versions, command duration).
 # That block is one conditional group: it draws its arrows only when it has content.
@@ -25,6 +28,7 @@ $os\
 $directory\
 $git_branch\
 $git_status\
+$git_state\
 ${custom.end_git}\
 ${custom.end_dir}\
 $fill\
@@ -73,7 +77,21 @@ symbol = "\ue0a0"
 format = "([\ue0b0](fg:#fbb829 bg:#98bc37)[ $symbol $branch ](bg:#98bc37 fg:#1c1b19))"
 
 [git_status]
-format = '([$all_status$ahead_behind ](bg:#98bc37 fg:#1c1b19))'
+format = '([$ahead_behind$stashed$conflicted$staged$modified$renamed$deleted$untracked](bg:#98bc37 fg:#1c1b19))'
+ahead = '⇡${count} '
+behind = '⇣${count} '
+diverged = '⇣${behind_count}⇡${ahead_count} '
+stashed = '*${count} '
+conflicted = '~${count} '
+staged = '+${count} '
+modified = '!${count} '
+renamed = '»${count} '
+deleted = '✘${count} '
+untracked = '?${count} '
+
+# rebase / merge / cherry-pick, same slot p10k uses for VCS_STATUS_ACTION.
+[git_state]
+format = '[$state( $progress_current/$progress_total) ](bg:#98bc37 fg:#1c1b19)'
 
 # Ends the left side: green arrow in a repo, yellow arrow outside one.
 [custom.end_git]

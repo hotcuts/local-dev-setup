@@ -15,6 +15,22 @@ if ! typeset -f nvm >/dev/null && [[ -s "$brew_prefix/opt/nvm/nvm.sh" ]]; then
   fi
 fi
 
+# History prefix search with Up / Down arrows (e.g. type 'git' and hit Up to cycle git commands)
+autoload -U up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[OA' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+bindkey '^[OB' down-line-or-beginning-search
+[[ -n "${terminfo[kcuu1]:-}" ]] && bindkey "${terminfo[kcuu1]}" up-line-or-beginning-search
+[[ -n "${terminfo[kcud1]:-}" ]] && bindkey "${terminfo[kcud1]}" down-line-or-beginning-search
+
+# zsh-autosuggestions (Fish-like ghost suggestions)
+if [[ -r "$brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
+  source "$brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+fi
+
 eval "$(starship init zsh)"
 
 # zsh-syntax-highlighting must be sourced last.
