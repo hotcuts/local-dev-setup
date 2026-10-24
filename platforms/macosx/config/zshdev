@@ -1,0 +1,2 @@
+# Managed by local-dev-setup. This file is the shell profile for the installer.
+eval "$(starship init zsh)"

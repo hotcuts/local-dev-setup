@@ -1,0 +1,6 @@
+brew "starship"
+cask "ghostty"
+cask "font-jetbrains-mono-nerd-font"
+cask "zed"
+cask "google-chrome"
+cask "firefox"
