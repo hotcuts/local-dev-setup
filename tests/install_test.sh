@@ -278,7 +278,8 @@ grep -q 'theme = Srcery' "$ROOT/platforms/macosx/config/ghostty.config" || die "
 opacity="$(sed -n 's/^background-opacity = //p' "$ROOT/platforms/macosx/config/ghostty.config")"
 python3 -c 'import sys; v = float(sys.argv[1]); assert 0 < v <= 1, v' "$opacity" 2>/dev/null \
   || die "ghostty background-opacity must be a number above 0 and at most 1 (got: $opacity)"
-grep -E -q '^background-blur = [0-9]+$' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty background blur is missing or invalid"
+! grep -Eq '^background-blur[[:space:]]*=[[:space:]]*([1-9][0-9]*|true|on)[[:space:]]*$' \
+  "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty must not enable background blur"
 grep -q '^adjust-cell-height = 20%$' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty line height is not adjusted for the prompt gap"
 gc="$ROOT/platforms/macosx/config/ghostty.config"
 grep -q '^cursor-style = block$' "$gc" || die "ghostty cursor is not a block"
