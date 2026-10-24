@@ -44,7 +44,7 @@ OS map: `Darwin` to `macosx`, `Linux` to `linux`, and `MINGW` / `MSYS` / `CYGWIN
 - Google Chrome
 - Firefox
 
-Homebrew is installed with the official non-interactive installer only when `brew` is missing. An existing install is reused, including `~/homebrew`. The search order is `PATH`, `/opt/homebrew/bin/brew`, `/usr/local/bin/brew`, then `~/homebrew/bin/brew`. A `brew shellenv` line is appended to `~/.zprofile` only when neither `~/.zprofile` nor `~/.zshrc` already has one.
+Homebrew is installed with the official non-interactive installer only when `brew` is missing. An existing install is reused, including `~/homebrew`. The search order is `PATH`, `/opt/homebrew/bin/brew`, `/usr/local/bin/brew`, then `~/homebrew/bin/brew`. A `brew shellenv` line is appended to `~/.zprofile` only when neither `~/.zprofile` nor `~/.zshrc` already has one. A cask whose app is already in `/Applications` or `~/Applications`, and which Homebrew does not own, is skipped. Adopting those apps runs `chgrp`, and macOS returns "Operation not permitted". Delete the app and re-run if Homebrew should install that cask.
 
 Shell setup for this installer lives in `~/.zshdev`, including `eval "$(starship init zsh)"`. Zsh does not load that file on its own, so `~/.zshrc` gets one line when it is missing:
 

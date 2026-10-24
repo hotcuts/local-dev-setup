@@ -50,6 +50,19 @@ printf '%s\n' "$*" >> "$BREW_LOG"
 if [[ "${1:-}" == "shellenv" ]]; then
   printf 'export HOMEBREW_PREFIX="%s"\n' "${FAKE_BREW_PREFIX:?}"
 fi
+if [[ "${1:-}" == "list" && "${2:-}" == "--cask" ]]; then
+  if [[ -n "${BREW_UNMANAGED_CASKS:-}" && -f "${BREW_UNMANAGED_CASKS}/${3:-}" ]]; then
+    exit 1
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == "info" && "${2:-}" == "--cask" && "${3:-}" == "--json=v2" ]]; then
+  info_file="${BREW_CASK_INFO:-}/${4:-}"
+  if [[ -f "$info_file" ]]; then
+    cat "$info_file"
+  fi
+  exit 0
+fi
 exit 0
 EOF
   chmod +x "$FAKE_BIN/brew"
@@ -208,6 +221,29 @@ grep -q 'warning: starship version 1 content changed without a version bump; not
 after_sha="$(shasum -a 256 "$(starship_dest)" | awk '{print $1}')"
 [[ "$before_sha" == "$after_sha" ]] || die "forgotten bump overwrote starship.toml"
 echo "PASS same version with changed bytes warns and does not write"
+
+echo "RUN an existing app outside Homebrew is not adopted"
+setup_fixture
+export LOCAL_DEV_SETUP_APPLICATIONS="$HOME_DIR/Applications"
+mkdir -p "$LOCAL_DEV_SETUP_APPLICATIONS/Zed.app"
+BREW_UNMANAGED_CASKS="$FIX/unmanaged"
+BREW_CASK_INFO="$FIX/cask-info"
+mkdir -p "$BREW_UNMANAGED_CASKS" "$BREW_CASK_INFO"
+: > "$BREW_UNMANAGED_CASKS/zed"
+printf '%s\n' '{"casks":[{"token":"zed","artifacts":[{"app":["Zed.app"]}]}]}' > "$BREW_CASK_INFO/zed"
+export BREW_UNMANAGED_CASKS BREW_CASK_INFO
+code="$(run_install)"
+[[ "$code" == "0" ]] || die "unmanaged app install exited $code: $(cat "$FIX/err")"
+grep -qx 'skipped: zed' "$FIX/stdout" || die "zed was not skipped: $(cat "$FIX/stdout")"
+effective="${HOME_DIR}/.local/share/local-dev-setup/Brewfile"
+grep -q 'skipped: zed is already installed and is not a Homebrew cask' "$effective" || die "filtered Brewfile missing zed skip"
+if grep -q 'cask "zed"' "$effective"; then
+  die "filtered Brewfile still installs zed"
+fi
+grep -q 'cask "ghostty"' "$effective" || die "filtered Brewfile dropped ghostty"
+grep -q -- "--file=${effective}" "$BREW_LOG" || die "brew bundle did not use the filtered Brewfile: $(cat "$BREW_LOG")"
+unset LOCAL_DEV_SETUP_APPLICATIONS BREW_UNMANAGED_CASKS BREW_CASK_INFO
+echo "PASS an existing app outside Homebrew is not adopted"
 
 echo "RUN an extra module runs after the built-in modules"
 setup_fixture
