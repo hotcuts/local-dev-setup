@@ -57,6 +57,17 @@ state_set() {
   mv "$tmp" "$file"
 }
 
+state_unset() {
+  local key=$1
+  local file tmp
+  file="$(state_file)"
+  [[ -f "$file" ]] || return 0
+  grep -q "^${key}=" "$file" || return 0
+  tmp="$(mktemp)"
+  grep -v "^${key}=" "$file" > "$tmp" || true
+  mv "$tmp" "$file"
+}
+
 file_sha256() {
   shasum -a 256 "$1" | awk 'NR==1 { print $1 }'
 }
@@ -109,19 +120,22 @@ install_managed_file() {
 
 record_state() {
   local name=$1
-  local version=$2
-  local sha=$3
-  state_set "${name}_version" "$version"
+  local sha=$2
   state_set "${name}_sha256" "$sha"
+  # Older installs tracked a manual version number. Nothing reads it any more.
+  state_unset "${name}_version"
 }
 
-apply_versioned_file() {
+# Write a repo file to its destination when the repo file has changed since the last apply.
+#   missing destination        -> write it
+#   repo file unchanged        -> leave the destination alone, including hand edits
+#   repo file changed          -> back up the destination, then write the repo file
+apply_managed_file() {
   local name=$1
-  local version=$2
-  local src=$3
-  local dest=$4
-  local condition=$5
-  local repo_sha recorded_version recorded_sha
+  local src=$2
+  local dest=$3
+  local condition=$4
+  local repo_sha recorded_sha
 
   if ! condition_met "$condition"; then
     note_skipped "$name"
@@ -139,15 +153,7 @@ apply_versioned_file() {
     return 1
   }
 
-  case "$version" in
-    ''|*[!0-9]*)
-      echo "error: version must be an integer for $name" >&2
-      return 1
-      ;;
-  esac
-
   repo_sha="$(file_sha256 "$src")"
-  recorded_version="$(state_get "${name}_version")"
   recorded_sha="$(state_get "${name}_sha256")"
 
   if [[ ! -f "$dest" ]]; then
@@ -156,47 +162,39 @@ apply_versioned_file() {
       return 1
     fi
     install_managed_file "$src" "$dest"
-    record_state "$name" "$version" "$repo_sha"
+    record_state "$name" "$repo_sha"
     note_changed "$name"
     return 0
   fi
 
-  if [[ -z "$recorded_version" || "$version" -gt "$recorded_version" ]]; then
-    if cmp -s "$src" "$dest"; then
-      record_state "$name" "$version" "$repo_sha"
-      note_unchanged "$name"
-    else
-      backup_file "$name" "$dest"
-      install_managed_file "$src" "$dest"
-      record_state "$name" "$version" "$repo_sha"
-      note_changed "$name"
-    fi
-    return 0
-  fi
-
-  if [[ "$version" -eq "$recorded_version" ]]; then
-    if [[ "$recorded_sha" != "$repo_sha" ]]; then
-      echo "warning: ${name} version ${version} content changed without a version bump; not applying" >&2
-      note_unchanged "$name"
-      return 0
-    fi
+  if [[ "$recorded_sha" == "$repo_sha" ]]; then
+    record_state "$name" "$repo_sha"
     note_unchanged "$name"
     return 0
   fi
 
-  note_unchanged "$name"
+  if cmp -s "$src" "$dest"; then
+    record_state "$name" "$repo_sha"
+    note_unchanged "$name"
+    return 0
+  fi
+
+  backup_file "$name" "$dest"
+  install_managed_file "$src" "$dest"
+  record_state "$name" "$repo_sha"
+  note_changed "$name"
 }
 
 apply_manifest() {
   local manifest=$1
-  local line name version src rest dest condition
+  local line name src rest dest condition
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
       ''|\#*) continue ;;
     esac
 
-    read -r name version src rest <<< "$line"
+    read -r name src rest <<< "$line"
     [[ -n "${rest:-}" ]] || {
       echo "error: invalid manifest line: $line" >&2
       return 1
@@ -205,6 +203,6 @@ apply_manifest() {
     condition="${rest##* }"
     dest="${rest% "$condition"}"
     dest="${dest% }"
-    apply_versioned_file "$name" "$version" "$src" "$dest" "$condition"
+    apply_managed_file "$name" "$src" "$dest" "$condition"
   done < "$manifest"
 }

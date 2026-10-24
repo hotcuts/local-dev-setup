@@ -104,11 +104,11 @@ grep -q 'cask "font-jetbrains-mono-nerd-font"' "$ROOT/platforms/macosx/Brewfile"
 grep -q 'cask "zed"' "$ROOT/platforms/macosx/Brewfile" || die "missing zed cask"
 grep -q 'cask "google-chrome"' "$ROOT/platforms/macosx/Brewfile" || die "missing chrome cask"
 grep -q 'cask "firefox"' "$ROOT/platforms/macosx/Brewfile" || die "missing firefox cask"
-for formula in zsh-syntax-highlighting zsh-autocomplete nvm go; do
+for formula in zsh-syntax-highlighting nvm go; do
   grep -qx "brew \"$formula\"" "$ROOT/platforms/macosx/Brewfile" || die "missing $formula formula"
 done
 zshdev_src="$ROOT/platforms/macosx/config/zshdev"
-grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev does not load zsh-autocomplete"
+! grep -q 'zsh-autocomplete.plugin.zsh' "$zshdev_src" || die "zshdev should not load zsh-autocomplete"
 grep -q 'zsh-syntax-highlighting.zsh' "$zshdev_src" || die "zshdev does not load zsh-syntax-highlighting"
 grep -q 'opt/nvm/nvm.sh' "$zshdev_src" || die "zshdev does not load nvm"
 auto_cd_state="$(env -i HOME="$(mktemp -d)" PATH="/usr/bin:/bin" HOMEBREW_PREFIX=/nonexistent \
@@ -120,6 +120,143 @@ last_line="$(grep -vn '^[[:space:]]*\(#\|$\)' "$zshdev_src" | tail -n 1 | cut -d
   || die "zsh-syntax-highlighting must be sourced last"
 grep -q 'hotcuts/local-dev-setup' "$ROOT/install.sh" || die "install.sh is not pinned to hotcuts/local-dev-setup"
 echo "PASS repo declares the macOS baseline"
+
+echo "RUN Tones pad starship theme"
+sp="$ROOT/config/starship.toml"
+grep -q 'Tones pad' "$sp" || die "starship.toml is not named Tones pad"
+grep -q '#fbb829' "$sp" || die "starship.toml does not use the Srcery palette"
+for old in ffc600 3ad900 ff628c 0088ff 132738 0d2233 e6eef7 8a9bb5; do
+  grep -qi "#$old" "$sp" && die "starship.toml still has Cobalt2 color #$old"
+done
+grep -q 'bg:' "$sp" || die "Tones pad uses powerline segments, which need backgrounds"
+python3 - "$sp" << 'PY' || die "Tones pad layout is wrong"
+import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+first, sep, rest = cfg["format"].partition("$line_break")
+assert sep, "format needs a $line_break between the two lines"
+order = ["$os", "$directory", "$git_branch", "$fill", "$nodejs", "$bun", "$golang", "$rust", "$php", "$cmd_duration", "$status", "$time"]
+for mod in order:
+    assert mod in first, mod + " must be on line 1"
+positions = [first.index(m) for m in order]
+assert positions == sorted(positions), "line 1 segments are out of order: left side, fill, runtime, status, clock"
+assert "$hostname" not in cfg["format"] and "hostname" not in cfg, "the right side is reserved for runtime info, not host"
+# The runtime block is one conditional group, so its arrows vanish when it is empty.
+group_start = first.index("([", first.index("$fill"))
+group_end = first.index("$cmd_duration") 
+assert group_start < first.index("$nodejs") and group_end < first.index("$status"), "runtime modules must sit inside one (...) group before status"
+assert "╭─" in first and "╰─" in rest, "connector lines are missing"
+assert "$directory" not in rest, "line 2 is the input line only"
+assert "$character" in rest, "line 2 needs the character module for the caret"
+assert "[╰─ ]" in rest, "one space between the connector and the caret"
+for key in ("success_symbol", "error_symbol"):
+    assert "❯]" in cfg["character"][key], key + " is just the caret, no trailing spaces"
+assert cfg.get("right_format", "") == "", "the right side lives on line 1 via $fill, not right_format"
+for mod in ("os", "status", "time"):
+    assert cfg[mod]["disabled"] is False, mod + " must be enabled"
+PY
+real_starship="$(command -v starship || true)"
+if [[ -n "$real_starship" ]]; then
+  # TERM=dumb makes starship exit early without reading the config, so set a real one.
+  starship_cache="$(mktemp -d)"
+  keep "$starship_cache"
+  render() {
+    # usage: render <dir> [starship prompt args...]; prints the prompt with colors stripped.
+    local dir=$1
+    shift
+    (cd "$dir" && TERM=xterm-256color STARSHIP_CACHE="$starship_cache" STARSHIP_CONFIG="$sp" \
+      "$real_starship" prompt --terminal-width 100 "$@" 2>>"$starship_cache/stderr") \
+      | python3 -c 'import re,sys; print(re.sub(r"%\{|%\}|\x1b\[[0-9;]*m", "", sys.stdin.read()), end="")'
+  }
+  plain_dir="$(mktemp -d)/work"
+  mkdir -p "$plain_dir"
+  keep "$(dirname "$plain_dir")"
+
+  # Starship only validates modules it renders, so render a plain dir and failing status.
+  : > "$starship_cache/stderr"
+  out_ok="$(render "$plain_dir" --status 0)"
+  out_fail="$(render "$plain_dir" --status 1)"
+  out_slow="$(render "$plain_dir" --status 0 --cmd-duration 3000)"
+  warnings="$(cat "$starship_cache/stderr")"
+  if printf '%s' "$warnings" | grep -Eq 'ERROR|WARN'; then
+    die "starship rejected the config: $warnings"
+  fi
+  python3 - "$out_ok" "$out_fail" "$out_slow" << 'PY' || die "Tones pad render is wrong"
+import re, socket, sys
+ok, fail, slow = sys.argv[1], sys.argv[2], sys.argv[3]
+host = socket.gethostname().split(".")[0]
+lines = ok.split("\n")
+assert len([l for l in lines if l.strip()]) == 2, "expected exactly two prompt lines, got: " + repr(ok)
+l1 = next(l for l in lines if l.strip())
+l2 = [l for l in lines if l.strip()][1]
+assert l1.startswith("╭─") and l2.startswith("╰─"), "connectors are wrong: " + repr(ok)
+assert "❯" in l2, "line 2 needs the caret: " + repr(l2)
+assert re.match(r"^╰─ ❯", l2), "caret follows the connector with one space: " + repr(l2)
+assert "work" in l1, "directory missing on line 1"
+assert re.search(r"\d\d:\d\d", l1), "clock missing from line 1"
+assert "✔" in l1 and "✘" not in l1, "success status should show a check"
+assert "✘" in fail and "✔" not in fail, "failed status should show a cross"
+assert "❯" in [l for l in fail.split("\n") if l.strip()][1], "caret must stay after a failed command"
+assert len(l1.rstrip()) >= 90, "right side was not pushed to the edge by $fill: " + repr(l1)
+
+# No host name or home icon on the right.
+assert "\uf015" not in l1, "home icon must not be on line 1"
+if len(host) >= 4:
+    assert host not in l1, "host name must not be on line 1"
+
+# The runtime segment only exists when it has content, and brings exactly one pair of arrows.
+slow_l1 = next(l for l in slow.split("\n") if l.strip())
+assert "took 3s" not in l1 and "took 3s" in slow_l1, "command duration belongs in the runtime segment"
+assert slow_l1.count("\ue0b2") == l1.count("\ue0b2") + 1, "runtime segment should add one left arrow"
+assert slow_l1.count("\ue0b0") == l1.count("\ue0b0") + 1, "runtime segment should add one right arrow"
+assert l1.count("\ue0b2") == 2, "with no runtime info only status and clock arrows remain: " + repr(l1)
+PY
+
+  # Git segments: only run where git can create a repo (some sandboxes block it).
+  git_dir="$(mktemp -d)/repo"
+  mkdir -p "$git_dir"
+  keep "$(dirname "$git_dir")"
+  if git -C "$git_dir" init -q -b tonesbranch 2>/dev/null && git -C "$git_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$git_out" | grep -q 'tonesbranch' || die "git branch missing in a repo: $git_out"
+    printf '%s' "$out_ok" | grep -q 'tonesbranch' && die "git branch leaked outside a repo"
+  else
+    echo "SKIP git segment render (git could not create a repo here)"
+  fi
+fi
+grep -q 'theme = Srcery' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty theme is not Srcery"
+opacity="$(sed -n 's/^background-opacity = //p' "$ROOT/platforms/macosx/config/ghostty.config")"
+python3 -c 'import sys; v = float(sys.argv[1]); assert 0 < v <= 1, v' "$opacity" 2>/dev/null \
+  || die "ghostty background-opacity must be a number above 0 and at most 1 (got: $opacity)"
+grep -E -q '^background-blur = [0-9]+$' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty background blur is missing or invalid"
+grep -q '^adjust-cell-height = 20%$' "$ROOT/platforms/macosx/config/ghostty.config" || die "ghostty line height is not adjusted for the prompt gap"
+gc="$ROOT/platforms/macosx/config/ghostty.config"
+grep -q '^cursor-style = block$' "$gc" || die "ghostty cursor is not a block"
+grep -q '^cursor-style-blink = true$' "$gc" || die "ghostty cursor does not blink"
+grep -q '^cursor-color = #98bc37$' "$gc" || die "ghostty cursor should match the green caret"
+# Shell integration forces a bar cursor at the prompt unless the cursor feature is off.
+grep -q '^shell-integration-features = no-cursor$' "$gc" || die "shell integration would override the block cursor"
+theme_file="/Applications/Ghostty.app/Contents/Resources/ghostty/themes/Srcery"
+if [[ -f "$theme_file" ]]; then
+  python3 - "$sp" "$theme_file" << 'PY2' || die "Ghostty theme and Starship colors have drifted apart"
+import re, sys
+starship = set(c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}", open(sys.argv[1], encoding="utf-8").read()))
+theme_text = open(sys.argv[2]).read().lower()
+theme = set(re.findall(r"#[0-9a-f]{6}", theme_text))
+# #303030 is the status panel: a step lighter than the background, deliberately not a theme color.
+missing = sorted(c for c in starship - {"#303030"} if c not in theme)
+assert not missing, "starship colors missing from the Ghostty theme: " + ", ".join(missing)
+bg = re.search(r"^background = (#[0-9a-f]{6})", theme_text, re.M).group(1)
+assert bg == "#1c1b19", "Ghostty background changed: " + bg
+PY2
+fi
+ghostty_bin=/Applications/Ghostty.app/Contents/MacOS/ghostty
+if [[ -x "$ghostty_bin" ]]; then
+  ghostty_out="$("$ghostty_bin" +validate-config --config-file="$ROOT/platforms/macosx/config/ghostty.config" 2>&1)" || ghostty_rc=$?
+  if [[ "${ghostty_rc:-0}" != 0 && "$ghostty_out" != *SentryInitFailed* ]]; then
+    die "ghostty rejected its config: $ghostty_out"
+  fi
+fi
+echo "PASS Tones pad starship theme"
 
 echo "RUN darwin dispatch selects macosx"
 [[ "$(uname -s)" == "Darwin" ]] || die "these tests run on macOS"
@@ -185,7 +322,7 @@ shellenv_count="$(grep -Fc 'brew shellenv' "$HOME_DIR/.zprofile")"
 grep -qx 'unchanged: starship' "$FIX/stdout" || die "second run did not report starship unchanged"
 echo "PASS second run writes nothing and starship init is added once"
 
-echo "RUN deleted config is restored at the same version"
+echo "RUN deleted config is restored"
 setup_fixture
 code="$(run_install)"
 [[ "$code" == "0" ]] || die "install before delete exited $code"
@@ -193,7 +330,7 @@ rm -f "$(starship_dest)"
 code="$(run_install)"
 [[ "$code" == "0" ]] || die "restore install exited $code: $(cat "$FIX/err")"
 assert_file_equals "$FIX/config/starship.toml" "$(starship_dest)"
-echo "PASS deleted config is restored at the same version"
+echo "PASS deleted config is restored"
 
 echo "RUN ghostty config is written only when the app exists"
 setup_fixture
@@ -205,36 +342,65 @@ grep -q 'font-family = JetBrainsMono Nerd Font' "$(ghostty_dest)" || die "font f
 grep -q 'font-size = 16' "$(ghostty_dest)" || die "font size was not applied"
 echo "PASS ghostty config is written only when the app exists"
 
-echo "RUN version bump replaces the file and keeps a backup"
+echo "RUN a changed repo config is applied automatically and backed up"
 setup_fixture
 code="$(run_install)"
 [[ "$code" == "0" ]] || die "baseline install exited $code"
 old_copy="$(mktemp)"
 keep "$old_copy"
 cp "$(starship_dest)" "$old_copy"
-printf '\n# local-dev-setup test bump\n' >> "$FIX/config/starship.toml"
-sed -i '' 's/^starship 1 /starship 2 /' "$FIX/platforms/macosx/manifest.conf"
+printf '\n# edited in the repo, no version bump anywhere\n' >> "$FIX/config/starship.toml"
 code="$(run_install)"
-[[ "$code" == "0" ]] || die "version bump exited $code: $(cat "$FIX/err")"
+[[ "$code" == "0" ]] || die "config update exited $code: $(cat "$FIX/err")"
 assert_file_equals "$FIX/config/starship.toml" "$(starship_dest)"
+grep -qx 'changed: starship' "$FIX/stdout" || die "update was not reported: $(cat "$FIX/stdout")"
 backup="$(find "$HOME_DIR/.local/share/local-dev-setup/backups" -type f -name starship)"
-[[ -n "$backup" ]] || die "version bump did not leave a backup"
+[[ -n "$backup" ]] || die "update did not leave a backup"
 cmp -s "$old_copy" "$backup" || die "backup does not match the previous starship config"
-echo "PASS version bump replaces the file and keeps a backup"
+code="$(run_install)"
+[[ "$code" == "0" ]] || die "re-run after update exited $code"
+grep -qx 'unchanged: starship' "$FIX/stdout" || die "re-run after an update should change nothing"
+[[ "$(find "$HOME_DIR/.local/share/local-dev-setup/backups" -type f -name starship | wc -l | tr -d ' ')" == "1" ]] \
+  || die "re-run after an update made another backup"
+echo "PASS a changed repo config is applied automatically and backed up"
 
-echo "RUN same version with changed bytes warns and does not write"
+echo "RUN hand edits survive while the repo file is unchanged"
 setup_fixture
 code="$(run_install)"
 [[ "$code" == "0" ]] || die "baseline install exited $code"
-before_sha="$(shasum -a 256 "$(starship_dest)" | awk '{print $1}')"
-printf '\n# forgotten bump\n' >> "$FIX/config/starship.toml"
+printf '\n# my local tweak\n' >> "$(starship_dest)"
 code="$(run_install)"
-[[ "$code" == "0" ]] || die "forgotten bump exited $code: $(cat "$FIX/err")"
-grep -q 'warning: starship version 1 content changed without a version bump; not applying' "$FIX/err" \
-  || die "missing forgotten-bump warning: $(cat "$FIX/err")"
-after_sha="$(shasum -a 256 "$(starship_dest)" | awk '{print $1}')"
-[[ "$before_sha" == "$after_sha" ]] || die "forgotten bump overwrote starship.toml"
-echo "PASS same version with changed bytes warns and does not write"
+[[ "$code" == "0" ]] || die "re-run exited $code: $(cat "$FIX/err")"
+grep -q 'my local tweak' "$(starship_dest)" || die "a hand edit was overwritten although the repo file did not change"
+grep -qx 'unchanged: starship' "$FIX/stdout" || die "hand-edited config should report unchanged"
+[[ ! -d "$HOME_DIR/.local/share/local-dev-setup/backups" ]] || die "an unchanged repo file caused a backup"
+echo "PASS hand edits survive while the repo file is unchanged"
+
+echo "RUN the manifest has no version column"
+python3 - "$ROOT/platforms/macosx/manifest.conf" << 'PY2' || die "manifest still carries version numbers"
+import sys
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line or line.startswith("#"):
+        continue
+    fields = line.split()
+    assert not fields[1].isdigit(), "version column found: " + line
+    assert "/" in fields[1], "second field should be the source path: " + line
+PY2
+! grep -q 'version' "$ROOT/platforms/macosx/manifest.conf" || die "manifest header still mentions version"
+echo "PASS the manifest has no version column"
+
+echo "RUN state from the old version scheme migrates"
+setup_fixture
+mkdir -p "$HOME_DIR/.config" "$HOME_DIR/.local/share/local-dev-setup"
+printf 'old prompt\n' > "$(starship_dest)"
+printf 'starship_version=7\nstarship_sha256=0000\n' > "$HOME_DIR/.local/share/local-dev-setup/state.env"
+code="$(run_install)"
+[[ "$code" == "0" ]] || die "migration run exited $code: $(cat "$FIX/err")"
+assert_file_equals "$FIX/config/starship.toml" "$(starship_dest)"
+grep -q 'starship_version' "$HOME_DIR/.local/share/local-dev-setup/state.env" && die "legacy version key was left in state.env"
+grep -q '^starship_sha256=' "$HOME_DIR/.local/share/local-dev-setup/state.env" || die "sha was not recorded"
+echo "PASS state from the old version scheme migrates"
 
 echo "RUN an existing app outside Homebrew is not adopted"
 setup_fixture

@@ -20,12 +20,12 @@ LOCAL_DEV_SETUP_REPO=you/your-fork LOCAL_DEV_SETUP_REF=main bash install.sh
 
 ```
 install.sh                          curl entry and OS dispatch
-lib/common.sh                       versioned file apply, state, backups
-config/starship.toml                Tokyo Night prompt, shared across platforms
+lib/common.sh                       config apply, state, backups
+config/starship.toml                Tones pad prompt, shared across platforms
 platforms/macosx/install.sh         sources modules in lexical order
 platforms/macosx/modules/*.sh       Homebrew, Brewfile, configs, .zshdev hook
 platforms/macosx/Brewfile           taps, formulae, and casks
-platforms/macosx/manifest.conf      versioned config files
+platforms/macosx/manifest.conf      config files to manage
 platforms/macosx/config/            macOS-only app config
 platforms/linux/install.sh          not implemented
 platforms/windows/install.sh        not implemented
@@ -38,7 +38,7 @@ OS map: `Darwin` to `macosx`, `Linux` to `linux`, and `MINGW` / `MSYS` / `CYGWIN
 `platforms/macosx/Brewfile`:
 
 - `starship`
-- `zsh-autocomplete` and `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
+- `zsh-syntax-highlighting`, loaded from `~/.zshdev` (syntax highlighting last)
 - `AUTO_CD` enabled in `~/.zshdev`, so typing a directory name (or `..`) changes into it without `cd`
 - `nvm` and `go`; `~/.zshdev` uses Homebrew's nvm only when `nvm` is not already loaded by `~/.zshrc`
 - Ghostty
@@ -55,7 +55,7 @@ Shell setup for this installer lives in `~/.zshdev`, including `eval "$(starship
 [[ -f "$HOME/.zshdev" ]] && source "$HOME/.zshdev"
 ```
 
-Nothing else in `~/.zshrc` is added or removed. Oh My Zsh, nvm, and gcloud stay where they are. Later changes to the profile are written to `~/.zshdev` by bumping the `zshdev` version in the manifest.
+Nothing else in `~/.zshrc` is added or removed. Oh My Zsh, nvm, and gcloud stay where they are. Later changes to the profile reach `~/.zshdev` on the next run.
 
 Ghostty gets a font config only when `/Applications/Ghostty.app` exists:
 
@@ -74,23 +74,24 @@ For each row in the platform manifest:
 
 - The app condition fails: skip that file. The font cask still installs.
 - The destination is missing: write it.
-- The recorded version matches the manifest: leave the file alone, including local edits.
-- The manifest version is newer and the bytes differ: back up the live file under `~/.local/share/local-dev-setup/backups/<timestamp>/` and write the repo file.
-- The manifest version is unchanged but the repo file hash no longer matches the recorded hash: warn and do not apply. That is a forgotten version bump.
+- The repo file is the same as the last time it was applied: leave the destination alone, including local edits.
+- The repo file changed since the last apply: back up the live file under `~/.local/share/local-dev-setup/backups/<timestamp>/` and write the repo file.
+- There is no record yet and the live file differs from the repo file: back it up and write the repo file.
+
+The installer records a SHA-256 of each repo file it applies. There are no version numbers to maintain. Git history is the version history.
 
 ## Change a config
 
 1. Edit the file, for example `config/starship.toml`.
-2. Increment its version in `platforms/macosx/manifest.conf`.
-3. Re-run `install.sh`.
+2. Re-run `install.sh`.
 
-A content edit without a version bump is ignored on purpose.
+The next run sees that the repo file changed, backs up the live file, and writes the new one. A run after that changes nothing. Edits you make directly to the live file are kept until the repo file changes again.
 
-Manifest fields are `name`, `version`, `src`, `dest`, and `condition`. Paths in `src` are relative to the repo root. `dest` may start with `~/`. `condition` is `-` or `app:/absolute/path`.
+Manifest fields are `name`, `src`, `dest`, and `condition`. Paths in `src` are relative to the repo root. `dest` may start with `~/`. `condition` is `-` or `app:/absolute/path`.
 
 ```
-starship 1 config/starship.toml ~/.config/starship.toml -
-ghostty 1 platforms/macosx/config/ghostty.config ~/Library/Application Support/com.mitchellh.ghostty/config.ghostty app:/Applications/Ghostty.app
+starship config/starship.toml ~/.config/starship.toml -
+ghostty platforms/macosx/config/ghostty.config ~/Library/Application Support/com.mitchellh.ghostty/config.ghostty app:/Applications/Ghostty.app
 ```
 
 ## Add a package
@@ -104,14 +105,14 @@ cask "visual-studio-code"
 
 ## Add a module
 
-Drop a numbered script into `platforms/macosx/modules/`. `platforms/macosx/install.sh` sources `*.sh` in lexical order. A fork can add `50-gitconfig.sh` without editing the dispatcher. Modules share the shell, so they can call `apply_versioned_file` and `note_changed` from `lib/common.sh`. A module must be safe to run twice.
+Drop a numbered script into `platforms/macosx/modules/`. `platforms/macosx/install.sh` sources `*.sh` in lexical order. A fork can add `50-gitconfig.sh` without editing the dispatcher. Modules share the shell, so they can call `apply_managed_file` and `note_changed` from `lib/common.sh`. A module must be safe to run twice.
 
 ## Fork
 
 1. Change `REPO` in `install.sh` from `hotcuts/local-dev-setup` to your `user/repo`, so the curl entry clones the fork.
 2. Edit that platform's Brewfile, manifest, and config files.
 3. Add modules under `platforms/<os>/modules/`.
-4. Leave `install.sh` and `lib/common.sh` alone unless you are changing dispatch or the versioning rules.
+4. Leave `install.sh` and `lib/common.sh` alone unless you are changing dispatch or how configs are applied.
 
 To implement Linux or Windows later, replace that platform's `install.sh` and add its own modules, package list, and manifest. The root dispatcher stays as it is.
 

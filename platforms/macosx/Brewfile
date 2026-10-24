@@ -1,5 +1,4 @@
 brew "starship"
-brew "zsh-autocomplete"
 brew "zsh-syntax-highlighting"
 brew "nvm"
 brew "go"

@@ -15,11 +15,6 @@ if ! typeset -f nvm >/dev/null && [[ -s "$brew_prefix/opt/nvm/nvm.sh" ]]; then
   fi
 fi
 
-# zsh-autocomplete
-if [[ -r "$brew_prefix/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh" ]]; then
-  source "$brew_prefix/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh"
-fi
-
 eval "$(starship init zsh)"
 
 # zsh-syntax-highlighting must be sourced last.
