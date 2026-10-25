@@ -306,22 +306,28 @@ grep -q 'bg:' "$sp" || die "Tones pad uses powerline segments, which need backgr
 python3 - "$sp" << 'PY' || die "Tones pad layout is wrong"
 import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
+assert cfg["format"].count("$line_break") == 1, "the info row and caret must be adjacent so the ╭─ ╰─ bars meet"
 first, sep, rest = cfg["format"].partition("$line_break")
 assert sep, "format needs a $line_break between the two lines"
-order = ["$os", "$directory", "$git_branch", "$git_status", "$git_state", "$fill", "$nodejs", "$bun", "$golang", "$rust", "$php", "$cmd_duration", "$status", "$time"]
+order = ["$os", "$directory", "$nodejs", "$bun", "$golang", "$rust", "$php", "$git_branch", "$git_status", "$git_state", "$fill", "$cmd_duration", "$status", "$time"]
 for mod in order:
     assert mod in first, mod + " must be on line 1"
 positions = [first.index(m) for m in order]
-assert positions == sorted(positions), "line 1 segments are out of order: left side, fill, runtime, status, clock"
-assert "$hostname" not in cfg["format"] and "hostname" not in cfg, "the right side is reserved for runtime info, not host"
-# The runtime block is one conditional group, so its arrows vanish when it is empty.
-group_start = first.index("([", first.index("$fill"))
-group_end = first.index("$cmd_duration") 
-assert group_start < first.index("$nodejs") and group_end < first.index("$status"), "runtime modules must sit inside one (...) group before status"
+assert positions == sorted(positions), "line 1 accordion is os, dir, lang, git, fill, duration, status, clock"
+assert "$hostname" not in cfg["format"] and "hostname" not in cfg, "the right side is reserved for duration/status/clock, not host"
+lang_group_start = first.index("([", 0)
+assert lang_group_start < first.index("$nodejs") < first.index("$git_branch"), "language sits in one accordion group between directory and git"
+assert first.index("$php") < first.index("${custom.lang_to_git}"), "language joins git with a pink-to-green arrow"
+assert first.index("${custom.dir_to_git}") < first.index("$git_branch"), "git still has a yellow-to-green arrow when language is absent"
+assert "fbb829" not in cfg["git_branch"]["format"], "git must not hard-code a directory arrow; the accordion customs own that join"
+# Duration on the right is its own group so it vanishes when the command was fast.
+dur_group_start = first.index("([", first.index("$fill"))
+assert dur_group_start < first.index("$cmd_duration") < first.index("$status")
+assert first.index("$nodejs") < first.index("$fill"), "language belongs on the left, not the duration group"
 assert "╭─" in first and "╰─" in rest, "connector lines are missing"
 assert "$directory" not in rest, "line 2 is the input line only"
 assert "$character" in rest, "line 2 needs the character module for the caret"
-assert "[╰─ ]" in rest, "one space between the connector and the caret"
+assert "[╰─]" in rest and "[╰─ ]" not in rest, "caret sits against the connector with no extra space"
 for key in ("success_symbol", "error_symbol"):
     assert "❯]" in cfg["character"][key], key + " is just the caret, no trailing spaces"
 assert cfg.get("right_format", "") == "", "the right side lives on line 1 via $fill, not right_format"
@@ -339,6 +345,11 @@ assert gs["staged"].startswith("+")
 assert gs["modified"].startswith("!")
 assert gs["untracked"].startswith("?")
 assert "$state" in cfg["git_state"]["format"]
+assert cfg["directory"]["truncation_length"] == 1, "accordion directory is the current folder only"
+for key in ("lang_to_git", "end_lang", "dir_to_git"):
+    assert key in cfg["custom"], "missing accordion join " + key
+for lang in ("nodejs", "bun", "golang", "rust", "php"):
+    assert "#ff5c8f" in cfg[lang]["format"], lang + " must share the pink language slice"
 PY
 real_starship="$(command -v starship || true)"
 if [[ -n "$real_starship" ]]; then
@@ -371,12 +382,13 @@ import re, socket, sys
 ok, fail, slow = sys.argv[1], sys.argv[2], sys.argv[3]
 host = socket.gethostname().split(".")[0]
 lines = ok.split("\n")
-assert len([l for l in lines if l.strip()]) == 2, "expected exactly two prompt lines, got: " + repr(ok)
-l1 = next(l for l in lines if l.strip())
-l2 = [l for l in lines if l.strip()][1]
+nonempty = [l for l in lines if l.strip()]
+assert len(nonempty) == 2, "expected exactly two prompt lines, got: " + repr(ok)
+assert len([l for l in lines if l.strip() or l == ""]) < 4, "a blank row would gap the ╭─ ╰─ bars: " + repr(ok)
+l1, l2 = nonempty[0], nonempty[1]
 assert l1.startswith("╭─") and l2.startswith("╰─"), "connectors are wrong: " + repr(ok)
 assert "❯" in l2, "line 2 needs the caret: " + repr(l2)
-assert re.match(r"^╰─ ❯", l2), "caret follows the connector with one space: " + repr(l2)
+assert re.match(r"^╰─❯", l2), "caret should sit against the connector: " + repr(l2)
 assert "work" in l1, "directory missing on line 1"
 assert re.search(r"\d\d:\d\d", l1), "clock missing from line 1"
 assert "✔" in l1 and "✘" not in l1, "success status should show a check"
@@ -445,6 +457,36 @@ PY
   else
     echo "SKIP git segment render (git could not create a repo here)"
   fi
+
+  lang_dir="$(mktemp -d)/app"
+  mkdir -p "$lang_dir"
+  keep "$(dirname "$lang_dir")"
+  printf '%s\n' '{"name":"app"}' > "$lang_dir/package.json"
+  lang_out="$(render "$lang_dir" --status 0)"
+  printf '%s' "$lang_out" | grep -q 'app' || die "directory missing in a language project: $lang_out"
+  printf '%s' "$lang_out" | grep -q 'tonesbranch' && die "git leaked into a language-only directory: $lang_out"
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$lang_out" | grep -Eq 'v?[0-9]+\.[0-9]+' || die "language slice missing a version: $lang_out"
+    python3 - "$out_ok" "$lang_out" << 'PY' || die "language accordion did not add a left-side slice"
+import sys
+plain, lang = sys.argv[1], sys.argv[2]
+plain_l1 = next(l for l in plain.split("\n") if l.strip())
+lang_l1 = next(l for l in lang.split("\n") if l.strip())
+assert lang_l1.count("\ue0b0") == plain_l1.count("\ue0b0") + 1, "language should add one right arrow: " + repr(lang_l1)
+assert "took" not in lang_l1, "language must not sit in the duration group"
+PY
+  else
+    echo "SKIP language version render (node is not installed)"
+  fi
+
+  if [[ -d "$git_dir" ]] && git -C "$git_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf '%s\n' '{"name":"app"}' > "$git_dir/package.json"
+    both_out="$(render "$git_dir" --status 0)"
+    printf '%s' "$both_out" | grep -q 'tonesbranch' || die "git missing when language is also present: $both_out"
+    if command -v node >/dev/null 2>&1; then
+      printf '%s' "$both_out" | grep -Eq 'v?[0-9]+\.[0-9]+' || die "language slice missing next to git: $both_out"
+    fi
+  fi
 fi
 grep -q 'theme = Srcery' "$ROOT/config/ghostty.config" || die "ghostty theme is not Srcery"
 opacity="$(sed -n 's/^background-opacity = //p' "$ROOT/config/ghostty.config")"
@@ -452,7 +494,7 @@ python3 -c 'import sys; v = float(sys.argv[1]); assert 0 < v <= 1, v' "$opacity"
   || die "ghostty background-opacity must be a number above 0 and at most 1 (got: $opacity)"
 ! grep -Eq '^background-blur[[:space:]]*=[[:space:]]*([1-9][0-9]*|true|on)[[:space:]]*$' \
   "$ROOT/config/ghostty.config" || die "ghostty must not enable background blur"
-grep -q '^adjust-cell-height = 20%$' "$ROOT/config/ghostty.config" || die "ghostty line height is not adjusted for the prompt gap"
+grep -q '^adjust-cell-height = 40%$' "$ROOT/config/ghostty.config" || die "ghostty line height is not 40% for prompt padding"
 gc="$ROOT/config/ghostty.config"
 grep -q '^cursor-style = block$' "$gc" || die "ghostty cursor is not a block"
 grep -q '^cursor-style-blink = true$' "$gc" || die "ghostty cursor does not blink"

@@ -3,14 +3,16 @@
 # Tones pad
 # Powerline prompt in the Srcery palette.
 #
-#   ╭─  macOS  dir  git branch ⇣⇡ * ~ + ! ? ▶            ◀ runtime ▶◀ status ◀ clock
-#   ╰─
+#   ╭─  macOS  dir  [lang]  [git ⇣⇡ * ~ + ! ?] ▶            ◀ duration ▶◀ status ◀ clock
+#   ╰─❯
+#
+# Accordion: language and git slices (and their arrows) vanish when they have
+# nothing to show, so a plain directory is just os + dir.
+# Language sits between directory and git, one pink segment for every runtime.
+# Git stays green and last on the left.
 #
 # Git status follows Powerlevel10k: behind/ahead arrows with counts, then stash,
 # merge state, conflicts, staged, modified, renamed, deleted, and untracked.
-#
-# The right side is reserved for runtime info (language versions, command duration).
-# That block is one conditional group: it draws its arrows only when it has content.
 #
 # Palette:
 #   yellow #fbb829   green #98bc37   magenta #ff5c8f   blue #68a8e4   red #f75341
@@ -26,6 +28,8 @@ format = """
 $os\
 [\ue0b0](fg:#fce8c3 bg:#fbb829)\
 $directory\
+([\ue0b0](fg:#fbb829 bg:#ff5c8f)$nodejs$bun$golang$rust$php${custom.lang_to_git}${custom.end_lang})\
+${custom.dir_to_git}\
 $git_branch\
 $git_status\
 $git_state\
@@ -33,11 +37,6 @@ ${custom.end_git}\
 ${custom.end_dir}\
 $fill\
 ([\ue0b2](fg:#ff5c8f)\
-$nodejs\
-$bun\
-$golang\
-$rust\
-$php\
 $cmd_duration\
 [ ](bg:#ff5c8f)[\ue0b0](fg:#ff5c8f))\
 [\ue0b2](fg:#303030)\
@@ -45,7 +44,7 @@ $status\
 [\ue0b2](fg:#68a8e4 bg:#303030)\
 $time\
 $line_break\
-[╰─ ](fg:#918175)\
+[╰─](fg:#918175)\
 $character"""
 
 # Green caret, red after a failed command.
@@ -68,13 +67,34 @@ Macos = "\uf179"
 style = 'bg:#fbb829 fg:#1c1b19'
 format = '[ $path$read_only ]($style)'
 read_only = " \uf023"
-truncation_length = 3
+truncation_length = 1
 truncation_symbol = '…/'
 
-# Each git piece draws its own leading arrow, so nothing is left dangling outside a repo.
+# Join arrows. Language files match Starship's node/bun/go/rust/php detectors.
+# The (lang) group is skipped when every language module is empty, so its arrows
+# go with it. Git's leading arrow is yellow->green only when that group is gone.
+
+[custom.lang_to_git]
+description = 'Pink to green arrow when a language segment is followed by git'
+when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && (d="$PWD"; while [ "$d" != "/" ] && [ -n "$d" ]; do for f in package.json package-lock.json .nvmrc .node-version bun.lock bun.lockb bunfig.toml go.mod go.sum go.work Cargo.toml Cargo.lock composer.json composer.lock; do [ -e "$d/$f" ] && exit 0; done; [ -d "$d/node_modules" ] && exit 0; nd=$(dirname "$d"); [ "$nd" = "$d" ] && break; d="$nd"; done; exit 1)'
+command = 'true'
+format = "[\ue0b0](fg:#ff5c8f bg:#98bc37)"
+
+[custom.end_lang]
+description = 'End the left side on pink when there is a language and no git'
+when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1 && (d="$PWD"; while [ "$d" != "/" ] && [ -n "$d" ]; do for f in package.json package-lock.json .nvmrc .node-version bun.lock bun.lockb bunfig.toml go.mod go.sum go.work Cargo.toml Cargo.lock composer.json composer.lock; do [ -e "$d/$f" ] && exit 0; done; [ -d "$d/node_modules" ] && exit 0; nd=$(dirname "$d"); [ "$nd" = "$d" ] && break; d="$nd"; done; exit 1)'
+command = 'true'
+format = "[\ue0b0](fg:#ff5c8f)"
+
+[custom.dir_to_git]
+description = 'Yellow to green arrow when git follows the directory with no language'
+when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! (d="$PWD"; while [ "$d" != "/" ] && [ -n "$d" ]; do for f in package.json package-lock.json .nvmrc .node-version bun.lock bun.lockb bunfig.toml go.mod go.sum go.work Cargo.toml Cargo.lock composer.json composer.lock; do [ -e "$d/$f" ] && exit 0; done; [ -d "$d/node_modules" ] && exit 0; nd=$(dirname "$d"); [ "$nd" = "$d" ] && break; d="$nd"; done; exit 1)'
+command = 'true'
+format = "[\ue0b0](fg:#fbb829 bg:#98bc37)"
+
 [git_branch]
 symbol = "\ue0a0"
-format = "([\ue0b0](fg:#fbb829 bg:#98bc37)[ $symbol $branch ](bg:#98bc37 fg:#1c1b19))"
+format = '([ $symbol $branch ](bg:#98bc37 fg:#1c1b19))'
 
 [git_status]
 format = '([$ahead_behind$stashed$conflicted$staged$modified$renamed$deleted$untracked](bg:#98bc37 fg:#1c1b19))'
@@ -93,14 +113,13 @@ untracked = '?${count} '
 [git_state]
 format = '[$state( $progress_current/$progress_total) ](bg:#98bc37 fg:#1c1b19)'
 
-# Ends the left side: green arrow in a repo, yellow arrow outside one.
 [custom.end_git]
 when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1'
 command = 'true'
 format = "[\ue0b0](fg:#98bc37)"
 
 [custom.end_dir]
-when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! (d="$PWD"; while [ "$d" != "/" ] && [ -n "$d" ]; do for f in package.json package-lock.json .nvmrc .node-version bun.lock bun.lockb bunfig.toml go.mod go.sum go.work Cargo.toml Cargo.lock composer.json composer.lock; do [ -e "$d/$f" ] && exit 0; done; [ -d "$d/node_modules" ] && exit 0; nd=$(dirname "$d"); [ "$nd" = "$d" ] && break; d="$nd"; done; exit 1)'
 command = 'true'
 format = "[\ue0b0](fg:#fbb829)"
 
@@ -112,26 +131,39 @@ success_style = 'bg:#303030 fg:#98bc37'
 failure_style = 'bg:#303030 fg:#f75341'
 format = '[ $symbol$maybe_int ]($style)'
 
-# Runtime info. Each module starts with a space; the group adds the trailing one.
+# One pink language slice. Same color for every runtime, no per-language hues.
+# detect_extensions is empty so the slice only appears with the same project
+# files the accordion arrows look for (no stray .js in a git repo).
 [nodejs]
 symbol = "\ue718 "
 format = '[ $symbol($version)](bg:#ff5c8f fg:#1c1b19)'
+detect_extensions = []
+detect_files = ['package.json', 'package-lock.json', '.nvmrc', '.node-version']
+detect_folders = ['node_modules']
 
 [bun]
 symbol = 'bun '
 format = '[ $symbol($version)](bg:#ff5c8f fg:#1c1b19)'
+detect_extensions = []
+detect_files = ['bun.lock', 'bun.lockb', 'bunfig.toml']
 
 [golang]
 symbol = "\ue626 "
 format = '[ $symbol($version)](bg:#ff5c8f fg:#1c1b19)'
+detect_extensions = []
+detect_files = ['go.mod', 'go.sum', 'go.work']
 
 [rust]
 symbol = "\ue7a8 "
 format = '[ $symbol($version)](bg:#ff5c8f fg:#1c1b19)'
+detect_extensions = []
+detect_files = ['Cargo.toml', 'Cargo.lock']
 
 [php]
 symbol = "\ue73d "
 format = '[ $symbol($version)](bg:#ff5c8f fg:#1c1b19)'
+detect_extensions = []
+detect_files = ['composer.json', 'composer.lock']
 
 [cmd_duration]
 min_time = 2000
